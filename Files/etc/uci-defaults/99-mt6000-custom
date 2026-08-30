@@ -3,7 +3,7 @@
 
 #---------- 系统 ----------
 uci -q batch <<-EOF
-	set system.@system[0].hostname='GLMT6000_18'
+	set system.@system[0].hostname='GLMT6000_28'
 	set system.@system[0].timezone='CST-8'
 	set system.@system[0].zonename='Asia/Shanghai'
 	set system.@system[0].ttylogin='0'
@@ -47,10 +47,10 @@ set_iface() {
 
 	band=$(uci -q get wireless.$device.band)
 	case "$band" in
-		2g) ssid='G5-2G' ;;
-		5g) ssid='G5-5G' ;;
-		6g) ssid='G5-6G' ;;
-		*)  ssid='G5' ;;
+		2g) ssid='KD-2G' ;;
+		5g) ssid='KD-5G' ;;
+		6g) ssid='KD-6G' ;;
+		*)  ssid='KD' ;;
 	esac
 
 	uci -q set wireless.$iface.ssid="$ssid"
