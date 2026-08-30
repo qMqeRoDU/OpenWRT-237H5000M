@@ -34,7 +34,7 @@ jobs:
     with:
       #编译配置（对应 Config/MT6000.txt）
       WRT_CONFIG: MT6000
-      #默认主题（argon 或 aurora，二选一）
+      #默认主题（argon 或 design，二选一）
       WRT_THEME: argon
       #默认主机名
       WRT_NAME: GLMT6000_18
@@ -47,11 +47,11 @@ jobs:
       #默认密码，仅作提示，修改无用
       WRT_PW: admin
       #源码链接
-      WRT_REPO: https://github.com/immortalwrt/immortalwrt.git
+      WRT_REPO: https://github.com/coolsnowwolf/lede.git
       #源码分支
-      WRT_BRANCH: openwrt-25.12
+      WRT_BRANCH: master
       #源码名称
-      WRT_SOURCE: immortalwrt/immortalwrt
+      WRT_SOURCE: coolsnowwolf/lede
       #插件调整
       WRT_PACKAGE: ${{inputs.PACKAGE}}
       #仅输出配置文件
