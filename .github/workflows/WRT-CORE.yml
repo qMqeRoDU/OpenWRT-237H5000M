@@ -146,11 +146,11 @@ jobs:
           # 追加自定义feeds（顺序与本地一致，不要调换）
           echo "" >> feeds.conf.default
           cat >> feeds.conf.default <<-EOF
-          src-git mosdns https://github.com/sbwml/luci-app-mosdns.git;v5
-          src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
-          src-git passwall https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-          src-git helloworld https://github.com/fw876/helloworld.git
-          src-git openclash https://github.com/vernesong/OpenClash.git
+          src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages;main
+          src-git passwall https://github.com/Openwrt-Passwall/openwrt-passwall;main
+          src-git mosdns https://github.com/sbwml/luci-app-mosdns;v5
+          src-git helloworld https://github.com/fw876/helloworld;master
+          src-git openclash https://github.com/vernesong/OpenClash;master
           src-git istore https://github.com/linkease/istore;main
           EOF
 
@@ -160,20 +160,37 @@ jobs:
 
           ./scripts/feeds update -a
 
-          # 删除源码树自带的同名包，让自定义feeds里的版本生效
+          # ---------------------------------------------------------------
+          # 删除 lede 自带 feeds 里的同名包，让自定义 feeds 的新版生效
+          # 规则：feeds.conf.default 里排在前面的 feed 赢，
+          #       lede 自带的 packages / luci 排在最前，不删就永远用旧版
+          # ---------------------------------------------------------------
+
+          # LuCI 界面包
           rm -rf ./feeds/luci/applications/luci-app-argon-config
+          rm -rf ./feeds/luci/applications/luci-app-mosdns
           rm -rf ./feeds/luci/applications/luci-app-openclash
           rm -rf ./feeds/luci/applications/luci-app-passwall
           rm -rf ./feeds/luci/themes/luci-theme-argon
+
+          # 数据文件与 DNS 组件
           rm -rf ./feeds/packages/net/mosdns
           rm -rf ./feeds/packages/net/v2ray-geodata
+          rm -rf ./feeds/packages/net/chinadns-ng
+          rm -rf ./feeds/packages/net/dns2socks
+          rm -rf ./feeds/packages/net/dnsproxy
 
-          # ImmortalWrt 自带 feed 里这四个包版本偏旧，且排在自定义 feeds 前面会赢
-          # 删掉才能用上 passwall_packages 里的新版
+          # PassWall / SSR+ 的核心代理内核，Lean 那份更新慢，必须让位
           rm -rf ./feeds/packages/net/xray-core
           rm -rf ./feeds/packages/net/sing-box
-          rm -rf ./feeds/packages/net/hysteria
-          rm -rf ./feeds/packages/net/naiveproxy
+          rm -rf ./feeds/packages/net/geoview
+          rm -rf ./feeds/packages/net/microsocks
+          rm -rf ./feeds/packages/net/tcping
+
+          # 注：hysteria / naiveproxy / shadow-tls / shadowsocks-rust /
+          #     shadowsocksr-libev / simple-obfs / ipt2socks / v2ray-plugin /
+          #     xray-plugin 在 lede 自带 feed 里没有，本来就走 passwall_packages，无需删除
+          #     kcptun / trojan / haproxy 只有 lede 自带一份，无更新版可换，保留
 
           # 关键：删完必须重建索引，否则被删的包仍在索引里，会留下断链
           ./scripts/feeds update -i
@@ -182,6 +199,31 @@ jobs:
 
           # 清理断链的符号链接
           find ./package/feeds/ -xtype l -exec rm -f {} + 2>/dev/null || true
+
+          # ---------------------------------------------------------------
+          # 校验：打印每个关键组件最终来自哪个 feed、什么版本
+          # 只要有一行显示 feeds/packages（即 lede 自带），就说明该包没换成新版
+          # ---------------------------------------------------------------
+          echo "===== 关键组件来源核对 ====="
+          printf "%-24s %-22s %s\n" "包名" "来源feed" "版本"
+          for PKG in xray-core xray-plugin sing-box hysteria naiveproxy \
+                     shadowsocks-rust shadowsocksr-libev simple-obfs shadow-tls \
+                     v2ray-plugin v2ray-geodata ipt2socks chinadns-ng dns2socks \
+                     dns2socks-rust dnsproxy geoview microsocks tcping mosdns \
+                     redsocks2 tuic-client trojan kcptun haproxy \
+                     luci-app-passwall luci-app-ssr-plus luci-app-openclash \
+                     luci-app-mosdns luci-app-store ; do
+            LINK=$(find ./package/feeds/ -maxdepth 2 -name "$PKG" -print -quit 2>/dev/null)
+            if [ -n "$LINK" ]; then
+              SRC=$(readlink -f "$LINK" | sed "s|$PWD/||")
+              VER=$(grep -m1 -oP '^PKG_VERSION:=\K.*' "$SRC/Makefile" 2>/dev/null)
+              [ -n "$VER" ] || VER=$(grep -m1 -oP '^PKG_SOURCE_DATE:=\K.*' "$SRC/Makefile" 2>/dev/null)
+              printf "%-24s %-22s %s\n" "$PKG" "$(echo "$SRC" | cut -d/ -f2)" "${VER:-?}"
+            else
+              printf "%-24s %-22s %s\n" "$PKG" "未安装" "-"
+            fi
+          done
+          echo "==========================="
 
       - name: Custom Packages
         run: |
@@ -221,7 +263,14 @@ jobs:
         run: |
           cd ./wrt/
 
-          make download -j$(nproc)
+          # 先把 dl 库下全，失败的再单线程补一遍
+          make download -j8 || make download -j1 V=s
+
+          echo "===== dl 目录 ====="
+          du -sh ./dl
+          # 清掉下了一半的空文件，避免编译时报校验错
+          find ./dl -size -1024c -type f -exec ls -l {} \; -exec rm -f {} \;
+          echo "==================="
 
       - name: Compile Firmware
         if: env.WRT_TEST != 'true'
@@ -254,12 +303,12 @@ jobs:
 
       - name: Package Firmware
         run: |
-          cd ./wrt/ && mkdir ./upload/
+          cd ./wrt/ && mkdir -p ./upload/
 
           cp -f ./.config ./upload/Config-"$WRT_CONFIG"-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt
 
           if [[ $WRT_TEST != 'true' ]]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \;)" >> $GITHUB_ENV
+            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \; | sort -u | head -n1)" >> $GITHUB_ENV
             echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')" >> $GITHUB_ENV
 
             find ./bin/targets/ -iregex ".*\(buildinfo\|json\|sha256sums\|packages\)$" -exec rm -rf {} +
