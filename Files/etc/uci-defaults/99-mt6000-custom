@@ -26,42 +26,48 @@ EOF
 sed -i 's|^root:[^:]*:|root:$1$Op3nWrtX$l7bDHUU8J8QiMrMHTsaL51:|' /etc/shadow
 
 #---------- 无线 ----------
-# 若无线配置尚未生成，先生成
-[ -f /etc/config/wireless ] || /sbin/wifi config
-
-. /lib/functions.sh
-
-WIFI_KEY='ljx2026@.'
-
-set_radio() {
-	local radio="$1"
-	uci -q delete wireless.$radio.disabled
-}
-
-set_iface() {
-	local iface="$1"
-	local device band ssid
-
-	config_get device "$iface" device
-	[ -n "$device" ] || return 0
-
-	band=$(uci -q get wireless.$device.band)
-	case "$band" in
-		2g) ssid='KD-2G' ;;
-		5g) ssid='KD-5G' ;;
-		6g) ssid='KD-6G' ;;
-		*)  ssid='KD' ;;
-	esac
-
-	uci -q set wireless.$iface.ssid="$ssid"
-	uci -q set wireless.$iface.encryption='psk2+ccmp'
-	uci -q set wireless.$iface.key="$WIFI_KEY"
-	uci -q delete wireless.$iface.disabled
-}
-
-config_load wireless
-config_foreach set_radio wifi-device
-config_foreach set_iface wifi-iface
-uci -q commit wireless
-
+# mtwifi 是 MTK 闭源驱动，/etc/config/wireless 的结构与 mac80211 不同，
+# 下面这套按 band 分频段设 SSID 的写法在这棵树上不适用，已整段停用。
+# 无线请刷机后用 LuCI 的「MTK WiFi 配置」(luci-app-mtwifi-cfg) 手动设置。
+# 需要恢复时把每行开头的 '# ' 去掉即可。
+#
+# # 若无线配置尚未生成，先生成
+# [ -f /etc/config/wireless ] || /sbin/wifi config
+#
+# . /lib/functions.sh
+#
+# WIFI_KEY='ljx2026@.'
+#
+# set_radio() {
+# 	local radio="$1"
+# 	uci -q delete wireless.$radio.disabled
+# }
+#
+# set_iface() {
+# 	local iface="$1"
+# 	local device band ssid
+#
+# 	config_get device "$iface" device
+# 	[ -n "$device" ] || return 0
+#
+# 	band=$(uci -q get wireless.$device.band)
+# 	case "$band" in
+# 		2g) ssid='KD-2G' ;;
+# 		5g) ssid='KD-5G' ;;
+# 		6g) ssid='KD-6G' ;;
+# 		*)  ssid='KD' ;;
+# 	esac
+#
+# 	uci -q set wireless.$iface.ssid="$ssid"
+# 	uci -q set wireless.$iface.encryption='psk2+ccmp'
+# 	uci -q set wireless.$iface.key="$WIFI_KEY"
+# 	uci -q delete wireless.$iface.disabled
+# }
+#
+# config_load wireless
+# config_foreach set_radio wifi-device
+# config_foreach set_iface wifi-iface
+# uci -q commit wireless
+#
+#
 exit 0
