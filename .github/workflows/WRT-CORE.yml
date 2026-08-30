@@ -202,8 +202,10 @@ jobs:
 
           # ---------------------------------------------------------------
           # 校验：打印每个关键组件最终来自哪个 feed、什么版本
-          # 只要有一行显示 feeds/packages（即 lede 自带），就说明该包没换成新版
+          # 只要有一行显示 packages 或 luci（即 lede 自带），就说明该包没换成新版
           # ---------------------------------------------------------------
+          # 纯打印用，任何一条命令失败都不该让整个步骤挂掉
+          set +e
           echo "===== 关键组件来源核对 ====="
           printf "%-24s %-22s %s\n" "包名" "来源feed" "版本"
           for PKG in xray-core xray-plugin sing-box hysteria naiveproxy \
@@ -215,15 +217,19 @@ jobs:
                      luci-app-mosdns luci-app-store ; do
             LINK=$(find ./package/feeds/ -maxdepth 2 -name "$PKG" -print -quit 2>/dev/null)
             if [ -n "$LINK" ]; then
-              SRC=$(readlink -f "$LINK" | sed "s|$PWD/||")
-              VER=$(grep -m1 -oP '^PKG_VERSION:=\K.*' "$SRC/Makefile" 2>/dev/null)
-              [ -n "$VER" ] || VER=$(grep -m1 -oP '^PKG_SOURCE_DATE:=\K.*' "$SRC/Makefile" 2>/dev/null)
-              printf "%-24s %-22s %s\n" "$PKG" "$(echo "$SRC" | cut -d/ -f2)" "${VER:-?}"
+              # package/feeds/<feed名>/<包名>，上一级目录名就是 feed 名
+              FEED=$(basename "$(dirname "$LINK")")
+              MK=$(readlink -f "$LINK")/Makefile
+              VER=$(grep -m1 -oP '^PKG_VERSION:=\K.*' "$MK" 2>/dev/null)
+              [ -n "$VER" ] || VER=$(grep -m1 -oP '^PKG_SOURCE_DATE:=\K.*' "$MK" 2>/dev/null)
+              [ -n "$VER" ] || VER=$(grep -m1 -oP '^PKG_SOURCE_VERSION:=\K.{0,12}' "$MK" 2>/dev/null)
+              printf "%-24s %-22s %s\n" "$PKG" "$FEED" "${VER:-?}"
             else
               printf "%-24s %-22s %s\n" "$PKG" "未安装" "-"
             fi
           done
           echo "==========================="
+          set -e
 
       - name: Custom Packages
         run: |
