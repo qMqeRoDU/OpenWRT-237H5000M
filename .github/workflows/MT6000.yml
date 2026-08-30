@@ -25,6 +25,11 @@ on:
 #CI权限
 permissions: write-all
 
+#防止定时任务与手动触发撞车，同时跑两个 job 会抢缓存
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 #CI任务
 jobs:
   config:
@@ -37,9 +42,9 @@ jobs:
       #默认主题（argon 或 design，二选一）
       WRT_THEME: argon
       #默认主机名
-      WRT_NAME: GLMT6000_18
+      WRT_NAME: GLMT6000_28
       #默认WIFI名称（实际按频段区分，见 Files/etc/uci-defaults/99-mt6000-custom）
-      WRT_SSID: MT6000
+      WRT_SSID: KD
       #默认WIFI密码
       WRT_WORD: ljx2026@.
       #默认地址
