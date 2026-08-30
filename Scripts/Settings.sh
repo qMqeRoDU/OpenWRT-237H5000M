@@ -2,18 +2,28 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 VIKINGYFY
 
-#移除luci-app-attendedsysupgrade
-sed -i "/attendedsysupgrade/d" $(find ./feeds/luci/collections/ -type f -name "Makefile")
-#修改默认主题
-sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
+# lede 与 immortalwrt 的 luci 目录结构不完全一样，
+# 下面所有 sed 都先判断文件是否存在，找不到就跳过，避免 sed 无输入文件报错
+
+COLLECTIONS=$(find ./feeds/luci/collections/ -type f -name "Makefile" 2>/dev/null)
+if [ -n "$COLLECTIONS" ]; then
+	#移除luci-app-attendedsysupgrade
+	sed -i "/attendedsysupgrade/d" $COLLECTIONS
+	#修改默认主题
+	sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $COLLECTIONS
+fi
+
 #修改immortalwrt.lan关联IP
-sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js")
+FLASH_JS=$(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js" 2>/dev/null)
+[ -n "$FLASH_JS" ] && sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $FLASH_JS
+
 #添加编译日期标识
-sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $(find ./feeds/luci/modules/luci-mod-status/ -type f -name "10_system.js")
+SYS_JS=$(find ./feeds/luci/modules/luci-mod-status/ -type f -name "10_system.js" 2>/dev/null)
+[ -n "$SYS_JS" ] && sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $SYS_JS
 
 WIFI_SH=$(find ./target/linux/{mediatek/filogic,qualcommax}/base-files/etc/uci-defaults/ -type f -name "*set-wireless.sh" 2>/dev/null)
 WIFI_UC="./package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
-if [ -f "$WIFI_SH" ]; then
+if [ -n "$WIFI_SH" ] && [ -f "$WIFI_SH" ]; then
 	#修改WIFI名称
 	sed -i "s/BASE_SSID='.*'/BASE_SSID='$WRT_SSID'/g" $WIFI_SH
 	#修改WIFI密码
@@ -26,10 +36,12 @@ elif [ -f "$WIFI_UC" ]; then
 fi
 
 CFG_FILE="./package/base-files/files/bin/config_generate"
-#修改默认IP地址
-sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $CFG_FILE
-#修改默认主机名
-sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
+if [ -f "$CFG_FILE" ]; then
+	#修改默认IP地址
+	sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $CFG_FILE
+	#修改默认主机名
+	sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
+fi
 
 #配置文件修改
 echo "CONFIG_PACKAGE_luci=y" >> ./.config
@@ -55,10 +67,12 @@ fi
 
 #高通平台调整
 DTS_PATH="./target/linux/qualcommax/dts/"
-if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
+if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]] && [ -d "$DTS_PATH" ]; then
 	#无WIFI配置调整Q6大小
 	if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
 		find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
 		echo "qualcommax set up nowifi successfully!"
 	fi
 fi
+
+exit 0
