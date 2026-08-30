@@ -264,7 +264,7 @@ jobs:
           cd ./wrt/
 
           # 先把 dl 库下全，失败的再单线程补一遍
-          make download -j8 || make download -j1 V=s
+          make download -j$(nproc) || make download -j1 V=s
 
           echo "===== dl 目录 ====="
           du -sh ./dl
