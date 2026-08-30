@@ -45,14 +45,19 @@ UPDATE_PACKAGE() {
 # UPDATE_PACKAGE "包名" "项目地址" "项目分支" "pkg/name，可选，pkg为从大杂烩中单独提取包名插件；name为重命名为包名"
 
 #===============================================
-# 只保留两套主题，其余插件全部走 feeds
+# 主题：只用 argon（jerrykuku 官方仓库）
+#   design 主题走 lede 源码树自带，不在这里 clone
+#   aurora 已停用，不再编译
+# 其余插件全部走 feeds
 # 不要在这里再加 passwall / openclash / mosdns
 # 否则会和 feeds 里的同名包冲突
 #===============================================
 UPDATE_PACKAGE "argon" "jerrykuku/luci-theme-argon" "master"
 UPDATE_PACKAGE "argon-config" "jerrykuku/luci-app-argon-config" "master"
-UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
-UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
+
+# UPDATE_PACKAGE 是在 feeds install 之后才删 feeds 目录的，
+# 会留下断链的符号链接，这里再清一次
+find ../package/feeds/ -xtype l -exec rm -f {} + 2>/dev/null || true
 
 #引入私有扩展脚本
 if [ -f "$GITHUB_WORKSPACE/Scripts/PRIVATE.sh" ]; then
