@@ -52,11 +52,11 @@ jobs:
       #默认密码，仅作提示，修改无用
       WRT_PW: admin
       #源码链接
-      WRT_REPO: https://github.com/coolsnowwolf/lede.git
+      WRT_REPO: https://github.com/padavanonly/immortalwrt-mt798x-24.10.git
       #源码分支
-      WRT_BRANCH: master
+      WRT_BRANCH: openwrt-24.10-6.6
       #源码名称
-      WRT_SOURCE: coolsnowwolf/lede
+      WRT_SOURCE: padavanonly/immortalwrt-mt798x-24.10
       #插件调整
       WRT_PACKAGE: ${{inputs.PACKAGE}}
       #仅输出配置文件
