@@ -277,7 +277,10 @@ jobs:
           cd ./wrt/
 
           # 先把 dl 库下全，失败的再单线程补一遍
-          make download -j$(nproc) || make download -j1 V=s
+          # timeout 是必须的：某个源站 TCP 连着但不给数据时，make download
+          # 会一直吊着不返回，|| 永远触发不了。25 分钟没下完就强制中断，
+          # 转单线程重试，单线程会打出正在下哪个 URL，方便定位
+          timeout 1500 make download -j$(nproc) || make download -j1 V=s
 
           echo "===== dl 目录 ====="
           du -sh ./dl
