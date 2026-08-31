@@ -161,13 +161,16 @@ jobs:
           ./scripts/feeds update -a
 
           # ---------------------------------------------------------------
-          # 替换 golang 为 sbwml 的 25.x（Go 1.25.x）
+          # 替换 golang 为 sbwml 的 26.x（Go 1.26.x）
+          # xray-core 26.7.28 的 go.mod 写死 go 1.26，用 25.x 会报
+          #   go: ../../go.mod requires go >= 1.26 (running go 1.25.14)
+          # 且 OpenWrt 设了 GOTOOLCHAIN=local，Go 不会自动下载新版工具链
           # xray-core / sing-box / hysteria / naiveproxy 这些都是 Go 写的，
           # feed 自带的 golang 版本偏低会编不过或编出问题
           # 必须在 feeds update -a 之后、feeds install -a 之前做
           # ---------------------------------------------------------------
           rm -rf ./feeds/packages/lang/golang
-          git clone --depth=1 --single-branch --branch 25.x \
+          git clone --depth=1 --single-branch --branch 26.x \
             https://github.com/sbwml/packages_lang_golang ./feeds/packages/lang/golang
           echo "golang -> $(grep -m1 -oP '^GO_VERSION_MAJOR_MINOR:=\K.*' ./feeds/packages/lang/golang/golang/Makefile).$(grep -m1 -oP '^GO_VERSION_PATCH:=\K.*' ./feeds/packages/lang/golang/golang/Makefile)"
 
