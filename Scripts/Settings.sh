@@ -35,6 +35,14 @@ elif [ -f "$WIFI_UC" ]; then
 	sed -i "s/key='.*'/key='$WRT_WORD'/g" $WIFI_UC
 fi
 
+#mtwifi（MTK闭源驱动）默认加密方式与密码，SSID保持源码默认不变
+MTWIFI_SH="./package/mtk/applications/mtwifi-cfg/files/mtwifi.sh"
+if [ -f "$MTWIFI_SH" ]; then
+	#WPA2-PSK + CCMP(AES)，并追加默认密码
+	sed -i 's|^\(\s*\)set wireless\.\(default_${dev}\)\.encryption=none|\1set wireless.\2.encryption=psk2+ccmp\n\1set wireless.\2.key='"$WRT_WORD"'|' $MTWIFI_SH
+	echo "mtwifi default encryption set successfully!"
+fi
+
 CFG_FILE="./package/base-files/files/bin/config_generate"
 if [ -f "$CFG_FILE" ]; then
 	#修改默认IP地址
