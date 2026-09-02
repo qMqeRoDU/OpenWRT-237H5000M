@@ -52,8 +52,13 @@ UPDATE_PACKAGE() {
 # 不要在这里再加 passwall / openclash / mosdns
 # 否则会和 feeds 里的同名包冲突
 #===============================================
-UPDATE_PACKAGE "argon" "jerrykuku/luci-theme-argon" "master"
-UPDATE_PACKAGE "argon-config" "jerrykuku/luci-app-argon-config" "master"
+# argon 主题改用源码树 feeds/luci 自带的版本（2.4.3-20250722），
+# 不再从 jerrykuku 拉取——官方 master(2.4.7) 与闭源 SDK 树有冲突。
+# 需要换回官方版时，取消下面两行注释，并把 WRT-CORE.yml 里
+# 删除 feeds/luci/{themes/luci-theme-argon,applications/luci-app-argon-config}
+# 的两行 rm 加回去。
+#UPDATE_PACKAGE "argon" "jerrykuku/luci-theme-argon" "master"
+#UPDATE_PACKAGE "argon-config" "jerrykuku/luci-app-argon-config" "master"
 
 # UPDATE_PACKAGE 是在 feeds install 之后才删 feeds 目录的，
 # 会留下断链的符号链接，这里再清一次
