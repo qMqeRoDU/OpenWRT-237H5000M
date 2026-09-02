@@ -181,10 +181,11 @@ jobs:
           # ---------------------------------------------------------------
 
           # LuCI 界面包（imm 的 luci feed 里没有 ssr-plus / mosdns / store，无需处理）
-          rm -rf ./feeds/luci/applications/luci-app-argon-config
+          # 注意：argon 主题与 argon-config 不删！
+          #   jerrykuku 官方 master(2.4.7) 跟这棵闭源 SDK 树有冲突，
+          #   改用 imm luci feed 自带的 2.4.3-20250722（针对 24.10 适配过）
           rm -rf ./feeds/luci/applications/luci-app-openclash
           rm -rf ./feeds/luci/applications/luci-app-passwall
-          rm -rf ./feeds/luci/themes/luci-theme-argon
 
           # 代理内核与插件（imm 的 packages feed 重名很多，必须逐个让位）
           for P in xray-core xray-plugin sing-box hysteria naiveproxy \
