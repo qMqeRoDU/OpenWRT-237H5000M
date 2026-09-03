@@ -234,3 +234,78 @@ if [ -f "$RUST_FILE" ]; then
 		echo "rust fix failed; continuing!"
 	fi
 fi
+
+#===============================================
+# 以下为 H5000M 专属处理
+#===============================================
+
+WRT_ROOT="$PKG_PATH/.."
+
+#修复 luci-app-mt5700m 的 mt5700m-read 执行位
+# 上游一度把 root/usr/sbin/mt5700m-read 提交成 644（同目录另三个是 755），
+# 概况页是靠 ubus file exec 调它取数的，没有执行位就全页无数据。
+# 现版本已修，这里保留一道保险，重复 chmod 无副作用。
+MT5700M_DIR="$(find "$WRT_ROOT/feeds" "$PKG_PATH" -maxdepth 4 -type d -name 'luci-app-mt5700m' -print -quit 2>/dev/null)"
+if [ -n "$MT5700M_DIR" ] && [ -d "$MT5700M_DIR/root/usr/sbin" ]; then
+	echo " "
+	chmod -R +x "$MT5700M_DIR/root/usr/sbin/" 2>/dev/null || true
+	ls -l "$MT5700M_DIR/root/usr/sbin/"
+	echo "mt5700m sbin permissions fixed!"
+fi
+
+#剔除 H5000M 机型定义里用不到的两个包
+# filogic.mk 的 Device/hiveton-h5000m 里写死了 luci-app-modem 与
+# luci-app-Airpifanctrl，而 Config 里这两个都是 =n：
+#   luci-app-modem      —— 树自带的老模组管理面板，与 luci-app-mt5700m 功能重叠
+#   luci-app-Airpifanctrl —— 树自带的老式 Lua 风扇控制，与 luci-app-h5000m-fancontrol 抢同一个 PWM
+# DEVICE_PACKAGES 里留着没被编出来的包，打包镜像时会报找不到，直接从机型定义里删掉。
+FILOGIC_MK="$WRT_ROOT/target/linux/mediatek/image/filogic.mk"
+if [ -f "$FILOGIC_MK" ]; then
+	echo " "
+	sed -i '/^define Device\/hiveton-h5000m$/,/^endef$/{
+		s/ luci-app-modem//g
+		s/ luci-app-Airpifanctrl//g
+	}' "$FILOGIC_MK"
+	echo "----- Device/hiveton-h5000m -----"
+	sed -n '/^define Device\/hiveton-h5000m$/,/^endef$/p' "$FILOGIC_MK"
+	echo "---------------------------------"
+fi
+
+#把风扇策略交给 luci-app-h5000m-fancontrol 独占
+# mt7987.dtsi 的 cooling-maps 里，cpu-active-low(40℃) / cpu-active-high(115℃)
+# / cpu-passive 三条都直接驱动 &fan，内核 thermal governor 会和用户态插件
+# 抢同一个 PWM 输出，自动曲线形同虚设。
+# 上游插件带的 openwrt-patches/*.patch 是按 OpenWrt 主线的 dts 写的，
+# 在这棵 237 树上 context 对不上、git apply 会失败，所以改成直接追加覆盖节点。
+# 只删这三条 active/passive 映射，cpu-active-hot(117℃ 降频)、hot(120℃)、
+# crit(125℃) 三级内核保护全部保留，插件挂了也不会烧板。
+# 不想要这个行为就把 H5000M_FAN_EXCLUSIVE 设成 0。
+H5000M_FAN_EXCLUSIVE="${H5000M_FAN_EXCLUSIVE:-1}"
+H5_DTS="$WRT_ROOT/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts"
+H5_DTSI="$WRT_ROOT/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7987.dtsi"
+if [ "$H5000M_FAN_EXCLUSIVE" = "1" ] && [ -f "$H5_DTS" ] && [ -f "$H5_DTSI" ]; then
+	echo " "
+	if grep -q "delete-node/ cpu-active-high" "$H5_DTS"; then
+		echo "h5000m fan policy: already applied, skip"
+	elif grep -q "cpu-active-high" "$H5_DTSI" \
+		&& grep -q "cpu-active-low" "$H5_DTSI" \
+		&& grep -q "cpu-passive" "$H5_DTSI"; then
+		cat >> "$H5_DTS" <<-'DTSEOF'
+
+		/*
+		 * 风扇策略交给 luci-app-h5000m-fancontrol 独占。
+		 * 保留 cpu-active-hot（CPU 降频）与 hot / critical 两级过热保护，
+		 * 只摘掉三条直接驱动 &fan 的 cooling-map，避免内核与用户态抢 PWM。
+		 */
+		&{/thermal-zones/cpu-thermal/cooling-maps} {
+			/delete-node/ cpu-active-high;
+			/delete-node/ cpu-active-low;
+			/delete-node/ cpu-passive;
+		};
+		DTSEOF
+		echo "h5000m fan policy: userspace exclusive applied"
+		tail -n 12 "$H5_DTS"
+	else
+		echo "h5000m fan policy: cooling-map node names not found in mt7987.dtsi, skip"
+	fi
+fi
