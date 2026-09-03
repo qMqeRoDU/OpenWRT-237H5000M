@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
 # H5000M 云编译公用核心
 
 name: WRT-CORE
@@ -41,7 +42,8 @@ on:
         type: string
       WRT_TEST:
         required: false
-        type: string
+        type: boolean
+        default: false
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -64,15 +66,19 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+
       # ============================================================
       # Checkout
       # ============================================================
+
       - name: Checkout Projects
         uses: actions/checkout@main
+
 
       # ============================================================
       # 初始化编译环境
       # ============================================================
+
       - name: Initialization Environment
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -84,7 +90,11 @@ jobs:
           sudo -E apt -yqq autoclean
           sudo -E apt -yqq clean
 
-          sudo -E apt -yqq install dos2unix libfuse-dev
+          sudo -E apt -yqq install \
+            dos2unix \
+            libfuse-dev \
+            curl \
+            file
 
           sudo bash -c \
             'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
@@ -93,29 +103,37 @@ jobs:
           sudo -E timedatectl set-timezone "Asia/Shanghai"
 
           sudo mkdir -p /mnt/build_wrt
-          sudo chown $USER:$USER /mnt/build_wrt
+          sudo chown "$USER:$USER" /mnt/build_wrt
 
           rm -f "$GITHUB_WORKSPACE/wrt"
-          sudo ln -s /mnt/build_wrt "$GITHUB_WORKSPACE/wrt"
+          ln -s /mnt/build_wrt "$GITHUB_WORKSPACE/wrt"
+
 
       # ============================================================
       # 初始化变量
       # ============================================================
+
       - name: Initialization Values
         run: |
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> "$GITHUB_ENV"
+
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> "$GITHUB_ENV"
 
           echo "WRT_TARGET=$(grep -m1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' ./Config/$WRT_CONFIG.txt)" >> "$GITHUB_ENV"
 
           echo "WRT_WIFI=wifi-yes" >> "$GITHUB_ENV"
+
           echo "WRT_KVER=none" >> "$GITHUB_ENV"
+
           echo "WRT_LIST=none" >> "$GITHUB_ENV"
 
+
       # ============================================================
-      # Clone 237 源码
+      # Clone 237 闭源 SDK
       # ============================================================
+
       - name: Clone Code
         run: |
           git clone \
@@ -129,16 +147,20 @@ jobs:
 
           echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> "$GITHUB_ENV"
 
-          # GitHub Actions 移除国内下载镜像
+          # GitHub Action 移除国内下载镜像
           PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
 
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
-            sed -i '/.cn\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
+            sed -i \
+              '/.cn\//d; /tencent/d; /aliyun/d' \
+              "$PROJECT_MIRRORS_FILE"
           fi
 
+
       # ============================================================
-      # 脚本换行与执行权限
+      # 脚本换行符 / 权限
       # ============================================================
+
       - name: Check Scripts
         run: |
           find ./ \
@@ -148,20 +170,25 @@ jobs:
             -exec dos2unix {} \; \
             -exec chmod +x {} \;
 
+
       # ============================================================
       # Cache
       # ============================================================
+
       - name: Check Caches
         id: check-cache
         if: env.WRT_TEST != 'true'
         uses: actions/cache@main
         with:
           key: ${{ env.WRT_CONFIG }}-${{ env.WRT_INFO }}-${{ env.WRT_HASH }}
+
           restore-keys: ${{ env.WRT_CONFIG }}-${{ env.WRT_INFO }}
+
           path: |
             ./wrt/.ccache
             ./wrt/staging_dir/host*
             ./wrt/staging_dir/tool*
+
 
       - name: Update Caches
         if: env.WRT_TEST != 'true'
@@ -173,43 +200,52 @@ jobs:
               -name "stamp" \
               -not -path "*target*" |
             while read -r DIR; do
-              find "$DIR" -type f -exec touch {} +
+
+              find "$DIR" \
+                -type f \
+                -exec touch {} +
+
             done
 
             mkdir -p ./wrt/tmp
+
             echo "1" > ./wrt/tmp/.build
 
-            echo "toolchain cache ready"
+            echo "toolchain skiped done!"
 
           else
 
-            echo "caches missed"
+            echo "caches missed!"
 
           fi
 
+
       # ============================================================
       # Feeds
+      #
+      # 目标：
+      #
+      # PassWall              最新 main
+      # PassWall Packages     最新 main
+      # SSR Plus              最新 helloworld
+      # MosDNS                最新 v5
+      # OpenClash             最新 master
+      #
+      # 237 自带旧组件如果重名，就删除让新版 feed 生效。
       # ============================================================
+
       - name: Update Feeds
         run: |
           set -e
 
           cd ./wrt/
 
+
           # --------------------------------------------------------
-          # 自定义 feeds
-          #
-          # QModem：
-          # 只需要它提供：
-          #   ubus-at-daemon
-          #   sms-tool_q
-          #
-          # 不需要 luci-app-qmodem / qmodem-next / tom_modem
+          # 自定义 Feeds
           # --------------------------------------------------------
 
-          echo "" >> feeds.conf.default
-
-          cat >> feeds.conf.default <<'EOF'
+          cat >> feeds.conf.default <<'FEEDS'
           src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages;main
           src-git passwall https://github.com/Openwrt-Passwall/openwrt-passwall;main
           src-git mosdns https://github.com/sbwml/luci-app-mosdns;v5
@@ -218,17 +254,31 @@ jobs:
           src-git istore https://github.com/linkease/istore;main
           src-git qmodem https://github.com/FUjr/QModem;main
           src-git mt5700m https://github.com/FAN789/luci-app-mt5700m;main
-          EOF
+          FEEDS
+
 
           echo "===== feeds.conf.default ====="
+
           cat feeds.conf.default
+
           echo "=============================="
+
+
+          # --------------------------------------------------------
+          # 更新 feeds
+          # --------------------------------------------------------
 
           ./scripts/feeds update -a
 
-          # --------------------------------------------------------
-          # Go 1.26.x
-          # --------------------------------------------------------
+
+          # ========================================================
+          # Golang 26.x
+          #
+          # 最新 Xray / sing-box / hysteria / naiveproxy 等 Go 组件
+          # 使用新版 Go。
+          #
+          # 不使用 25.x。
+          # ========================================================
 
           rm -rf ./feeds/packages/lang/golang
 
@@ -239,31 +289,37 @@ jobs:
             https://github.com/sbwml/packages_lang_golang \
             ./feeds/packages/lang/golang
 
-          echo "===== Go Version ====="
 
-          GO_MM=$(
-            grep -m1 \
-              -oP '^GO_VERSION_MAJOR_MINOR:=\K.*' \
-              ./feeds/packages/lang/golang/golang/Makefile || true
-          )
+          echo "===== Golang ====="
 
-          GO_PATCH=$(
-            grep -m1 \
-              -oP '^GO_VERSION_PATCH:=\K.*' \
-              ./feeds/packages/lang/golang/golang/Makefile || true
-          )
+          echo "golang -> $(grep -m1 -oP '^GO_VERSION_MAJOR_MINOR:=\K.*' \
+            ./feeds/packages/lang/golang/golang/Makefile).$(grep -m1 \
+            -oP '^GO_VERSION_PATCH:=\K.*' \
+            ./feeds/packages/lang/golang/golang/Makefile)"
 
-          echo "${GO_MM}.${GO_PATCH}"
+          echo "=================="
 
-          # --------------------------------------------------------
-          # 删除 ImmortalWrt 自带的冲突旧包
-          # --------------------------------------------------------
+
+          # ========================================================
+          # 删除 237 / ImmortalWrt feeds 里的旧版 LuCI 插件
+          #
+          # 让自定义 feed 的新版获得唯一 package 定义。
+          # ========================================================
 
           rm -rf ./feeds/luci/applications/luci-app-openclash
+
           rm -rf ./feeds/luci/applications/luci-app-passwall
+
           rm -rf ./feeds/luci/applications/luci-app-passwall2
+
           rm -rf ./feeds/luci/applications/luci-app-mosdns
+
           rm -rf ./feeds/luci/applications/luci-app-ssr-plus
+
+
+          # ========================================================
+          # 删除 packages feed 中与新版代理 feed 重名的旧组件
+          # ========================================================
 
           for P in \
             xray-core \
@@ -288,44 +344,69 @@ jobs:
             redsocks2 \
             tuic-client
           do
+
             rm -rf "./feeds/packages/net/$P"
+
           done
 
-          # 重建 feed 索引
+
+          # ========================================================
+          # 删除以后重新建立索引
+          # ========================================================
+
           ./scripts/feeds update -i
 
-          # --------------------------------------------------------
-          # 先正常安装全部 feeds
-          # --------------------------------------------------------
+
+          # ========================================================
+          # 安装全部 feeds
+          # ========================================================
 
           ./scripts/feeds install -a
 
+
           # ========================================================
-          # 关键修改 1：
-          # 删除 QModem 安装出来的全部 package 链接
-          # 然后只重新安装 MT5700M 真正需要的两个后端
+          # QModem 精简
+          #
+          # FAN789 luci-app-mt5700m 只需要：
+          #
+          #   ubus-at-daemon
+          #   sms-tool_q
+          #
+          # 不需要：
+          #
+          #   luci-app-qmodem
+          #   luci-app-qmodem-next
+          #   tom_modem
+          #
+          # 所以先删除整个 package/feeds/qmodem，
+          # 再只重新安装两个底层依赖。
           # ========================================================
 
           echo
           echo "========================================"
-          echo " 精简 QModem"
+          echo " QModem 精简"
           echo "========================================"
 
           rm -rf ./package/feeds/qmodem
+
           mkdir -p ./package/feeds/qmodem
 
-          ./scripts/feeds install -p qmodem \
+
+          ./scripts/feeds install \
+            -p qmodem \
             ubus-at-daemon \
             sms-tool_q
 
-          # 清掉其它 feed 可能留下的断链
+
+          # 清理所有断链
           find ./package/feeds/ \
             -xtype l \
             -exec rm -f {} + \
             2>/dev/null || true
 
+
           echo
-          echo "===== QModem 最终链接 ====="
+          echo "===== QModem 最终保留 ====="
 
           find ./package/feeds/qmodem \
             -mindepth 1 \
@@ -333,49 +414,61 @@ jobs:
             -printf '%f -> %l\n' \
             2>/dev/null || true
 
-          echo "============================"
+          echo "==========================="
 
-          # QModem 目录最终只允许 2 个链接
-          QMODEM_COUNT=$(
-            find ./package/feeds/qmodem \
-              -mindepth 1 \
-              -maxdepth 1 \
-              | wc -l
-          )
 
-          if [ "$QMODEM_COUNT" -ne 2 ]; then
-            echo "::error::QModem 最终不是两个 package，实际数量：$QMODEM_COUNT"
-            exit 1
-          fi
-
-          # ubus-at-daemon 的源码目录实际名称可能使用下划线
-          if ! find ./package/feeds/qmodem \
-            -mindepth 1 \
-            -maxdepth 1 \
-            \( -name 'ubus_at_daemon' -o -name 'ubus-at-daemon' \) \
-            | grep -q .
-          then
-            echo "::error::没有找到 ubus-at-daemon"
-            exit 1
-          fi
+          # --------------------------------------------------------
+          # 检查 ubus-at-daemon
+          #
+          # QModem 源码目录可能叫 ubus_at_daemon，
+          # 但 package 名是 ubus-at-daemon。
+          # --------------------------------------------------------
 
           if ! find ./package/feeds/qmodem \
             -mindepth 1 \
             -maxdepth 1 \
-            -name 'sms-tool_q' \
-            | grep -q .
+            \( \
+              -name 'ubus_at_daemon' \
+              -o \
+              -name 'ubus-at-daemon' \
+            \) |
+            grep -q .
           then
-            echo "::error::没有找到 sms-tool_q"
+
+            echo "::error::QModem 中没有 ubus-at-daemon"
+
             exit 1
+
           fi
 
-          echo "[ OK ] QModem 只保留 ubus-at-daemon + sms-tool_q"
 
           # --------------------------------------------------------
-          # 打印关键组件来源
+          # 检查 sms-tool_q
           # --------------------------------------------------------
+
+          if ! find ./package/feeds/qmodem \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -name 'sms-tool_q' |
+            grep -q .
+          then
+
+            echo "::error::QModem 中没有 sms-tool_q"
+
+            exit 1
+
+          fi
+
+
+          echo "[ OK ] QModem 只保留 MT5700M 所需后端"
+
+
+          # ========================================================
+          # 打印关键代理组件最终来自哪个 feed / 什么版本
+          # ========================================================
 
           set +e
+
 
           echo
           echo "===== 关键组件来源核对 ====="
@@ -384,6 +477,7 @@ jobs:
             "包名" \
             "来源feed" \
             "版本"
+
 
           for PKG in \
             xray-core \
@@ -427,10 +521,13 @@ jobs:
                 2>/dev/null
             )
 
+
             if [ -n "$LINK" ]; then
 
               FEED=$(basename "$(dirname "$LINK")")
+
               MK="$(readlink -f "$LINK")/Makefile"
+
 
               VER=$(
                 grep -m1 \
@@ -438,6 +535,7 @@ jobs:
                   "$MK" \
                   2>/dev/null
               )
+
 
               [ -n "$VER" ] ||
               VER=$(
@@ -447,6 +545,7 @@ jobs:
                   2>/dev/null
               )
 
+
               [ -n "$VER" ] ||
               VER=$(
                 grep -m1 \
@@ -454,6 +553,7 @@ jobs:
                   "$MK" \
                   2>/dev/null
               )
+
 
               printf "%-24s %-22s %s\n" \
                 "$PKG" \
@@ -471,89 +571,245 @@ jobs:
 
           done
 
+
           echo "==========================="
+
 
           set -e
 
+
       # ============================================================
-      # 自定义插件
+      # 自定义 Packages
+      #
+      # FAN789 H5000M Fancontrol 等在这里 clone。
       # ============================================================
+
       - name: Custom Packages
         run: |
           cd ./wrt/package/
 
           "$GITHUB_WORKSPACE/Scripts/Packages.sh"
+
           "$GITHUB_WORKSPACE/Scripts/Handles.sh"
 
+
       # ============================================================
-      # 自定义 files
+      # 自定义 Files
       # ============================================================
+
       - name: Custom Files
         run: |
           if [ -d "$GITHUB_WORKSPACE/Files" ]; then
 
             mkdir -p ./wrt/files
-            cp -rf "$GITHUB_WORKSPACE/Files/." ./wrt/files/
 
-            # 只处理脚本文件，避免损坏二进制
+            cp -rf \
+              "$GITHUB_WORKSPACE/Files/." \
+              ./wrt/files/
+
+
+            # 只对 uci-defaults 文本脚本执行 dos2unix
+            #
+            # OpenClash 内核等 ELF 二进制绝对不能 dos2unix。
+
             find ./wrt/files/etc/uci-defaults/ \
               -type f \
               -exec dos2unix {} \; \
               2>/dev/null || true
+
 
             find ./wrt/files/etc/uci-defaults/ \
               -type f \
               -exec chmod +x {} \; \
               2>/dev/null || true
 
-            chmod 755 \
-              ./wrt/files/etc/openclash/core/clash_meta \
-              2>/dev/null || true
+          fi
 
-            echo "===== files ====="
-            find ./wrt/files/ -type f
-            echo "================="
+
+          echo "===== files ====="
+
+          find ./wrt/files/ \
+            -type f \
+            2>/dev/null || true
+
+          echo "================="
+
+
+      # ============================================================
+      # OpenClash Meta Core
+      #
+      # 每次正式编译自动从 OpenClash 官方 core 分支下载
+      # 最新 ARM64 Meta Core。
+      #
+      # 最终固件位置：
+      #
+      # /etc/openclash/core/clash_meta
+      #
+      # 刷机后 OpenClash 不需要自己下载内核。
+      # ============================================================
+
+      - name: Install OpenClash Meta Core
+        if: env.WRT_TEST != 'true'
+        run: |
+          set -e
+
+
+          CORE_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-arm64.tar.gz"
+
+          CORE_TGZ="/tmp/clash-linux-arm64.tar.gz"
+
+          CORE_TMP="/tmp/openclash-core"
+
+          CORE_DST="./wrt/files/etc/openclash/core/clash_meta"
+
+
+          rm -rf \
+            "$CORE_TMP" \
+            "$CORE_TGZ"
+
+
+          mkdir -p \
+            "$CORE_TMP" \
+            "$(dirname "$CORE_DST")"
+
+
+          echo
+          echo "========================================"
+          echo " 下载 OpenClash ARM64 Meta Core"
+          echo "========================================"
+
+          echo "$CORE_URL"
+
+
+          curl \
+            -fL \
+            --retry 5 \
+            --retry-delay 3 \
+            --connect-timeout 20 \
+            --max-time 600 \
+            "$CORE_URL" \
+            -o "$CORE_TGZ"
+
+
+          # 检查 gzip
+          gzip -t "$CORE_TGZ"
+
+
+          # OpenClash 官方压缩包解压以后文件名就是 clash
+          tar \
+            -xzf "$CORE_TGZ" \
+            -C "$CORE_TMP"
+
+
+          if [ ! -s "$CORE_TMP/clash" ]; then
+
+            echo "::error::OpenClash 内核压缩包中没有 clash"
+
+            exit 1
 
           fi
 
+
+          # 写进 OpenWrt files/
+          install \
+            -m 0755 \
+            "$CORE_TMP/clash" \
+            "$CORE_DST"
+
+
+          if [ ! -s "$CORE_DST" ]; then
+
+            echo "::error::clash_meta 写入 files/ 失败"
+
+            exit 1
+
+          fi
+
+
+          echo
+          echo "===== OpenClash 内核信息 ====="
+
+          ls -lh "$CORE_DST"
+
+          file "$CORE_DST"
+
+
+          # H5000M = ARM64 / aarch64
+          if ! file "$CORE_DST" |
+            grep -qiE 'ARM aarch64|ARM64'
+          then
+
+            echo "::error::下载到的 OpenClash 内核不是 ARM64/aarch64"
+
+            exit 1
+
+          fi
+
+
+          echo
+          echo "[ OK ] OpenClash Meta Core"
+
+          echo "[ OK ] 将打包到 /etc/openclash/core/clash_meta"
+
+
       # ============================================================
-      # .config
+      # 生成最终 .config
       # ============================================================
+
       - name: Custom Settings
         run: |
           set -e
 
           cd ./wrt/
 
+
           # --------------------------------------------------------
-          # 237 H5000M MT7992 默认配置
+          # 237 H5000M MT7992 基础配置
           # --------------------------------------------------------
 
           WRT_BASE="./defconfig/mt7987_mt7992.config"
 
+
           if [ -f "$WRT_BASE" ]; then
 
-            cp -f "$WRT_BASE" .config
+            cp -f \
+              "$WRT_BASE" \
+              .config
 
-            echo "base config: $WRT_BASE ($(grep -c . "$WRT_BASE") 行)"
+
+            echo \
+              "base config: $WRT_BASE ($(grep -c . "$WRT_BASE") 行)"
 
           else
 
-            echo "::error::没有找到 $WRT_BASE"
+            echo "::error::未找到 $WRT_BASE"
+
             exit 1
 
           fi
 
+
           # --------------------------------------------------------
-          # 叠加我们的个人配置
+          # 叠加个人配置
           # --------------------------------------------------------
 
-          cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" >> .config
+          cat \
+            "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" \
+            >> .config
+
 
           "$GITHUB_WORKSPACE/Scripts/Settings.sh"
 
+
           # ========================================================
-          # 清掉 QModem 主包与所有残留子配置
+          # 清理历史 QModem 菜单配置
+          #
+          # Config/H5000M.txt 以前可能残留：
+          #
+          # luci-app-qmodem_INCLUDE_xxx
+          # tom_modem_xxx
+          #
+          # 全部清掉。
           # ========================================================
 
           sed -i \
@@ -569,14 +825,18 @@ jobs:
             -e '/^# CONFIG_PACKAGE_tom_modem_/d' \
             .config
 
-          echo '# CONFIG_PACKAGE_luci-app-qmodem is not set' >> .config
-          echo '# CONFIG_PACKAGE_luci-app-qmodem-next is not set' >> .config
-          echo '# CONFIG_PACKAGE_tom_modem is not set' >> .config
 
           # ========================================================
-          # Discussion #433：
-          # blkid 必须最后强制设为 y
-          # 否则 make defconfig 会洗掉闭源 MT7992 WiFi
+          # Discussion #433
+          #
+          # kmod-mt_wifi7 依赖 blkid。
+          #
+          # 237 默认 mt7987_mt7992.config 里 blkid 是关闭的，
+          # make defconfig 会连锁洗掉闭源 MT7992 WiFi。
+          #
+          # 所以必须在 make defconfig 前最后强制：
+          #
+          # CONFIG_PACKAGE_blkid=y
           # ========================================================
 
           sed -i \
@@ -584,65 +844,82 @@ jobs:
              /^# CONFIG_PACKAGE_blkid is not set$/d' \
             .config
 
-          echo 'CONFIG_PACKAGE_blkid=y' >> .config
+
+          echo \
+            'CONFIG_PACKAGE_blkid=y' \
+            >> .config
+
 
           # --------------------------------------------------------
-          # 生成最终配置
+          # Kconfig 收敛
           # --------------------------------------------------------
 
-          make defconfig -j"$(nproc)"
+          make defconfig \
+            -j"$(nproc)"
+
 
       # ============================================================
-      # 编译前配置终检
+      # defconfig 后配置终检
       # ============================================================
+
       - name: Check H5000M Config
         run: |
           cd ./wrt/
 
+
           WRT_MISS=0
+
 
           wrt_need() {
 
-            if grep -Fqx "$1" .config; then
+            if grep \
+              -Fqx \
+              "$1" \
+              .config
+            then
 
-              printf " [ OK ] %s\n" "$1"
+              printf \
+                " [ OK ] %s\n" \
+                "$1"
 
             else
 
-              printf " [FAIL] %s\n" "$1"
+              printf \
+                " [FAIL] %s 实际：%s\n" \
+                "$1" \
+                "$(grep -m1 -E "^#? ?${1%%=*}[= ]" .config || echo '未出现')"
 
-              KEY="${1%%=*}"
-
-              grep -m1 -F "$KEY" .config || true
 
               WRT_MISS=$((WRT_MISS + 1))
 
             fi
+
           }
 
-          echo
-          echo "========================================"
-          echo " H5000M 最终配置检查"
-          echo "========================================"
 
-          # --------------------------------------------------------
+          # ========================================================
           # 机型
-          # --------------------------------------------------------
+          # ========================================================
 
           echo
-          echo "===== DEVICE ====="
+          echo "===== H5000M ====="
+
 
           wrt_need \
             "CONFIG_TARGET_mediatek_filogic_DEVICE_hiveton-h5000m=y"
 
-          # --------------------------------------------------------
-          # Discussion #433 / 闭源 WiFi
-          # --------------------------------------------------------
+
+          # ========================================================
+          # 闭源 MT7992 WiFi
+          # ========================================================
 
           echo
-          echo "===== MT7992 WIFI ====="
+          echo "===== MT7992 闭源 WiFi ====="
 
-          wrt_need "CONFIG_PACKAGE_blkid=y"
+
+          wrt_need \
+            "CONFIG_PACKAGE_blkid=y"
+
 
           for K in \
             kmod-mt_wifi7 \
@@ -655,117 +932,224 @@ jobs:
             kmod-warp \
             kmod-mtk_wed
           do
-            wrt_need "CONFIG_PACKAGE_$K=y"
+
+            wrt_need \
+              "CONFIG_PACKAGE_$K=y"
+
           done
 
-          wrt_need "CONFIG_MTK_WIFI7_FIRST_IF_MT7992=y"
-          wrt_need "CONFIG_MTK_WIFI7_SECOND_IF_MT7992=y"
-          wrt_need "CONFIG_MTK_WIFI7_MT_WIFI=m"
 
-          wrt_need "CONFIG_MTK_WIFI7_FIRST_IF_EEPROM_FLASH=y"
-          wrt_need "CONFIG_MTK_WIFI7_FIRST_IF_IPAILNA=y"
-          wrt_need "CONFIG_MTK_WIFI7_SECOND_IF_IPAILNA=y"
+          wrt_need \
+            "CONFIG_MTK_WIFI7_FIRST_IF_MT7992=y"
 
-          wrt_need 'CONFIG_MTK_WIFI7_SKU_TYPE="BE5040"'
 
-          wrt_need "CONFIG_MTK_HWIFI_MT7992=y"
-          wrt_need "CONFIG_MTK_HWIFI_MT799A=y"
+          wrt_need \
+            "CONFIG_MTK_WIFI7_SECOND_IF_MT7992=y"
 
-          # ========================================================
-          # 关键：
-          # 我们本地验证成功的是 4 / 0 / 0
-          # ========================================================
 
-          wrt_need "CONFIG_MTK_HWIFI_MT7992_RRO_MODE=4"
-          wrt_need "CONFIG_MTK_HWIFI_MT7992_OPTION_TYPE=0"
-          wrt_need "CONFIG_MTK_HWIFI_MT7992_INTR_OPTION_SET=0"
+          wrt_need \
+            "CONFIG_MTK_WIFI7_MT_WIFI=m"
+
+
+          wrt_need \
+            "CONFIG_MTK_WIFI7_FIRST_IF_EEPROM_FLASH=y"
+
+
+          wrt_need \
+            "CONFIG_MTK_WIFI7_FIRST_IF_IPAILNA=y"
+
+
+          wrt_need \
+            "CONFIG_MTK_WIFI7_SECOND_IF_IPAILNA=y"
+
+
+          wrt_need \
+            'CONFIG_MTK_WIFI7_SKU_TYPE="BE5040"'
+
+
+          wrt_need \
+            "CONFIG_MTK_HWIFI_MT7992=y"
+
+
+          wrt_need \
+            "CONFIG_MTK_HWIFI_MT799A=y"
+
 
           # --------------------------------------------------------
+          # 本地实机验证成功参数：
+          #
+          # 4 / 0 / 0
+          # --------------------------------------------------------
+
+          wrt_need \
+            "CONFIG_MTK_HWIFI_MT7992_RRO_MODE=4"
+
+
+          wrt_need \
+            "CONFIG_MTK_HWIFI_MT7992_OPTION_TYPE=0"
+
+
+          wrt_need \
+            "CONFIG_MTK_HWIFI_MT7992_INTR_OPTION_SET=0"
+
+
+          # ========================================================
           # MT5700M
-          # --------------------------------------------------------
+          # ========================================================
 
           echo
-          echo "===== MT5700M ====="
+          echo "===== FAN789 MT5700M ====="
 
-          wrt_need "CONFIG_PACKAGE_luci-app-mt5700m=y"
-          wrt_need "CONFIG_PACKAGE_ubus-at-daemon=y"
-          wrt_need "CONFIG_PACKAGE_sms-tool_q=y"
 
-          wrt_need "CONFIG_PACKAGE_kmod-usb-net=y"
-          wrt_need "CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y"
-          wrt_need "CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y"
-          wrt_need "CONFIG_PACKAGE_kmod-usb-serial=y"
-          wrt_need "CONFIG_PACKAGE_kmod-usb-serial-option=y"
+          wrt_need \
+            "CONFIG_PACKAGE_luci-app-mt5700m=y"
 
-          # --------------------------------------------------------
-          # FAN789 风扇
-          # --------------------------------------------------------
+
+          wrt_need \
+            "CONFIG_PACKAGE_ubus-at-daemon=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_sms-tool_q=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_kmod-usb-net=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_kmod-usb-serial=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_kmod-usb-serial-option=y"
+
+
+          # ========================================================
+          # FAN789 H5000M 风扇控制
+          # ========================================================
 
           echo
-          echo "===== FAN CONTROL ====="
+          echo "===== H5000M Fancontrol ====="
 
-          wrt_need "CONFIG_PACKAGE_luci-app-h5000m-fancontrol=y"
-          wrt_need "CONFIG_PACKAGE_kmod-hwmon-pwmfan=y"
 
-          # --------------------------------------------------------
-          # 其它个人插件
-          # --------------------------------------------------------
+          wrt_need \
+            "CONFIG_PACKAGE_luci-app-h5000m-fancontrol=y"
+
+
+          wrt_need \
+            "CONFIG_PACKAGE_kmod-hwmon-pwmfan=y"
+
+
+          # ========================================================
+          # 代理插件
+          # ========================================================
 
           echo
-          echo "===== PLUGINS ====="
+          echo "===== 代理插件 ====="
+
 
           for P in \
             luci-app-passwall \
             luci-app-ssr-plus \
             luci-app-openclash \
-            luci-app-mosdns \
+            luci-app-mosdns
+          do
+
+            wrt_need \
+              "CONFIG_PACKAGE_$P=y"
+
+          done
+
+
+          # ========================================================
+          # 其它插件
+          # ========================================================
+
+          echo
+          echo "===== 其它插件 ====="
+
+
+          for P in \
             luci-app-mtwifi-cfg \
             luci-app-store \
             luci-theme-argon
           do
-            wrt_need "CONFIG_PACKAGE_$P=y"
+
+            wrt_need \
+              "CONFIG_PACKAGE_$P=y"
+
           done
 
+
           # ========================================================
-          # QModem 不允许出现任何启用项
+          # QModem 清理检查
+          #
+          # luci-app-qmodem
+          # luci-app-qmodem-next
+          # tom_modem
+          #
+          # 以及它们下面所有 =y / =m 项都不允许存在。
           # ========================================================
 
           echo
-          echo "===== QMODEM CLEAN CHECK ====="
+          echo "===== QModem Clean Check ====="
+
 
           QMODEM_ACTIVE=$(
             grep -E \
               '^CONFIG_PACKAGE_(luci-app-qmodem|luci-app-qmodem-next|tom_modem).*=[ym]$' \
-              .config || true
+              .config \
+              || true
           )
+
 
           if [ -n "$QMODEM_ACTIVE" ]; then
 
-            echo "[FAIL] 发现不应该启用的 QModem 项："
-            echo "$QMODEM_ACTIVE"
+            echo \
+              "[FAIL] 发现不应该启用的 QModem 项："
+
+
+            echo \
+              "$QMODEM_ACTIVE"
+
 
             WRT_MISS=$((WRT_MISS + 1))
 
           else
 
-            echo "[ OK ] QModem LuCI / tom_modem 没有启用"
+            echo \
+              "[ OK ] QModem LuCI / tom_modem 均未启用"
 
           fi
 
-          # --------------------------------------------------------
+
+          # ========================================================
           # 结果
-          # --------------------------------------------------------
+          # ========================================================
 
           echo
           echo "========================================"
 
+
           if [ "$WRT_MISS" -gt 0 ]; then
 
-            echo "::error::最终配置有 $WRT_MISS 项异常"
+            echo \
+              "::error::defconfig 后有 $WRT_MISS 项异常"
 
-            if [ "$WRT_TEST" = "true" ]; then
 
-              echo "TEST 模式：不终止，上传配置供检查"
+            if [ "$WRT_TEST" = 'true' ]; then
+
+              echo \
+                "TEST 模式：不中断，仍上传配置供核对"
 
             else
 
@@ -775,79 +1159,119 @@ jobs:
 
           else
 
-            echo "[ OK ] H5000M 配置检查全部通过"
+            echo \
+              "[ OK ] H5000M 配置全部通过"
 
           fi
 
+
       # ============================================================
-      # 清理 build_dir
+      # Clean
       # ============================================================
+
       - name: Clean Build Dir
         run: |
           cd ./wrt/
-          make clean -j"$(nproc)"
+
+          make clean \
+            -j"$(nproc)"
+
 
       # ============================================================
       # 下载源码包
       # ============================================================
+
       - name: Download Packages
         if: env.WRT_TEST != 'true'
         run: |
           cd ./wrt/
 
-          timeout 1500 \
-            make download -j"$(nproc)" ||
-            make download -j1 V=s
 
-          echo "===== dl ====="
+          # 25 分钟并行下载
+          #
+          # 如果卡住，转单线程显示详细下载错误。
+
+          timeout 1500 \
+            make download \
+            -j"$(nproc)" \
+            || \
+            make download \
+            -j1 \
+            V=s
+
+
+          echo
+          echo "===== dl 目录 ====="
+
           du -sh ./dl
 
-          # 删除异常小文件
+
+          # 删除异常的小文件 / 半截下载
+
           find ./dl \
             -size -1024c \
             -type f \
             -exec ls -l {} \; \
             -exec rm -f {} \;
 
-          echo "=============="
+
+          echo "==================="
+
 
       # ============================================================
       # 正式编译
       # ============================================================
+
       - name: Compile Firmware
         if: env.WRT_TEST != 'true'
         run: |
           cd ./wrt/
 
-          make -j"$(nproc)" ||
-          make -j"$(nproc)" V=s ||
-          make -j1 V=s
+
+          make \
+            -j"$(nproc)" \
+            || \
+            make \
+            -j"$(nproc)" \
+            V=s \
+            || \
+            make \
+            -j1 \
+            V=s
+
 
       # ============================================================
-      # 关键修改 2：
+      # 编译后终检
       #
-      # 编译完成以后检查 5 个闭源 WiFi 核心 ko
+      # 1. 五个闭源 MT7992 核心 ko 必须进入 root-mediatek
       #
-      # 必须已经进入 root-mediatek/lib/modules/
+      # 2. OpenClash clash_meta 必须进入最终 rootfs
       #
-      # 少任何一个：
-      #   exit 1
+      # 少一个就 exit 1。
       #
-      # 后面的 Package / Release 都不会执行
+      # 后面的 Package / Release 不会执行。
       # ============================================================
-      - name: Check MT7992 Kernel Modules
+
+      - name: Check Final RootFS
         if: env.WRT_TEST != 'true'
         run: |
           set -e
 
           cd ./wrt/
 
+
+          # ========================================================
+          # MT7992 五个闭源核心模块
+          # ========================================================
+
           echo
           echo "========================================"
-          echo " MT7992 编译后无线驱动终检"
+          echo " MT7992 五个闭源核心模块终检"
           echo "========================================"
 
+
           WIFI_MISS=0
+
 
           for KO in \
             mt_wifi.ko \
@@ -866,14 +1290,21 @@ jobs:
                 -quit
             )
 
+
             if [ -n "$KO_PATH" ]; then
 
-              echo "[ OK ] $KO"
-              echo "       $KO_PATH"
+              echo \
+                "[ OK ] $KO"
+
+
+              echo \
+                "       $KO_PATH"
 
             else
 
-              echo "[FAIL] $KO 没有进入 H5000M rootfs"
+              echo \
+                "[FAIL] $KO 没有进入 root-mediatek"
+
 
               WIFI_MISS=$((WIFI_MISS + 1))
 
@@ -881,31 +1312,100 @@ jobs:
 
           done
 
-          echo
-          echo "========================================"
 
           if [ "$WIFI_MISS" -ne 0 ]; then
 
-            echo "::error::缺少 $WIFI_MISS 个 MT7992 核心无线模块"
-            echo "::error::停止流程，不允许打包和发布固件"
+            echo \
+              "::error::缺少 $WIFI_MISS 个 MT7992 核心无线模块"
+
+
+            echo \
+              "::error::禁止打包与 Release"
+
 
             exit 1
 
           fi
 
-          echo "[ OK ] mt_wifi.ko"
-          echo "[ OK ] mtk_pci.ko"
-          echo "[ OK ] mtk_hwifi.ko"
-          echo "[ OK ] mt7992.ko"
-          echo "[ OK ] mt799a.ko"
+
+          # ========================================================
+          # OpenClash Core
+          # ========================================================
 
           echo
-          echo "[ OK ] 5 个 MT7992 核心驱动全部进入 rootfs"
-          echo "[ OK ] 允许继续打包与发布"
+          echo "========================================"
+          echo " OpenClash Meta Core 终检"
+          echo "========================================"
+
+
+          OC_CORE=$(
+            find ./build_dir \
+              -type f \
+              -path '*/root-mediatek/etc/openclash/core/clash_meta' \
+              -print \
+              -quit
+          )
+
+
+          if [ -z "$OC_CORE" ]; then
+
+            echo \
+              "::error::最终 rootfs 中没有 /etc/openclash/core/clash_meta"
+
+
+            echo \
+              "::error::禁止打包与 Release"
+
+
+            exit 1
+
+          fi
+
+
+          if [ ! -s "$OC_CORE" ]; then
+
+            echo \
+              "::error::最终 rootfs 中 clash_meta 是空文件"
+
+
+            echo \
+              "::error::禁止打包与 Release"
+
+
+            exit 1
+
+          fi
+
+
+          echo \
+            "[ OK ] OpenClash Meta Core"
+
+
+          echo \
+            "       $OC_CORE"
+
+
+          ls -lh \
+            "$OC_CORE"
+
+
+          file \
+            "$OC_CORE" \
+            || true
+
+
+          echo
+          echo "========================================"
+          echo "[ OK ] MT7992 5 KO 全部存在"
+          echo "[ OK ] OpenClash Meta Core 已进入 rootfs"
+          echo "[ OK ] 允许继续打包和 Release"
+          echo "========================================"
+
 
       # ============================================================
-      # Cache cleanup
+      # 清理旧 Cache
       # ============================================================
+
       - name: Cleanup Caches
         if: success() && env.WRT_TEST != 'true' && steps.check-cache.outputs.cache-hit != 'true'
         run: |
@@ -915,88 +1415,162 @@ jobs:
               | cut -f1
           )
 
-          for CACHE_KEY in $CACHE_LIST; do
-            gh cache delete "$CACHE_KEY"
+
+          for CACHE_KEY in $CACHE_LIST
+          do
+
+            gh cache delete \
+              "$CACHE_KEY"
+
           done
 
-          echo "caches cleanup done"
+
+          echo \
+            "caches cleanup done!"
+
 
       # ============================================================
       # Runner 信息
       # ============================================================
+
       - name: Machine Information
         run: |
           cd ./wrt/
 
-          echo "======================="
-          lscpu | grep -E "name|Core|Thread" || true
 
-          echo "======================="
+          echo \
+            "======================="
+
+
+          lscpu \
+            | grep -E "name|Core|Thread" \
+            || true
+
+
+          echo \
+            "======================="
+
+
           df -h
 
-          echo "======================="
-          du -h --max-depth=1
 
-          echo "======================="
+          echo \
+            "======================="
+
+
+          du -h \
+            --max-depth=1
+
+
+          echo \
+            "======================="
+
 
       # ============================================================
-      # 固件整理
+      # 整理固件
       # ============================================================
+
       - name: Package Firmware
         run: |
           cd ./wrt/
 
-          mkdir -p ./upload/
+
+          mkdir -p \
+            ./upload/
+
+
+          # 无论 TEST 还是正式编译，都上传最终 .config
 
           cp -f \
             ./.config \
             ./upload/Config-"$WRT_CONFIG"-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt
 
-          if [ "$WRT_TEST" != "true" ]; then
+
+          if [ "$WRT_TEST" != 'true' ]; then
+
+
+            # ------------------------------------------------------
+            # 内核版本
+            # ------------------------------------------------------
 
             WRT_KVER_VALUE=$(
               find ./bin/targets/ \
                 -type f \
                 -name "*.manifest" \
-                -exec grep -oP '^kernel - \K[\d\.]+' {} \; \
+                -exec grep -oP \
+                '^kernel - \K[\d\.]+' \
+                {} \; \
                 | sort -u \
                 | head -n1
             )
 
-            echo "WRT_KVER=${WRT_KVER_VALUE:-unknown}" >> "$GITHUB_ENV"
+
+            echo \
+              "WRT_KVER=${WRT_KVER_VALUE:-unknown}" \
+              >> "$GITHUB_ENV"
+
+
+            # ------------------------------------------------------
+            # 插件列表
+            # ------------------------------------------------------
 
             WRT_LIST_VALUE=$(
               find ./bin/targets/ \
                 -type f \
                 -name "*.manifest" \
-                -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; \
+                -exec grep -oP \
+                '^luci-(app|theme)[^ ]*' \
+                {} \; \
                 | tr '\n' ' '
             )
 
-            echo "WRT_LIST=$WRT_LIST_VALUE" >> "$GITHUB_ENV"
+
+            echo \
+              "WRT_LIST=$WRT_LIST_VALUE" \
+              >> "$GITHUB_ENV"
+
+
+            # ------------------------------------------------------
+            # 删除无用输出文件
+            # ------------------------------------------------------
 
             find ./bin/targets/ \
               -iregex ".*\(buildinfo\|json\|sha256sums\|packages\)$" \
               -exec rm -rf {} +
 
+
+            # ------------------------------------------------------
+            # 重命名 H5000M 固件
+            # ------------------------------------------------------
+
             while IFS= read -r FILE
             do
 
-              EXT="$(basename "$FILE" | cut -d '.' -f2-)"
+              EXT=$(
+                basename "$FILE" \
+                  | cut -d '.' -f2-
+              )
+
 
               NAME=$(
                 basename "$FILE" \
                   | cut -d '.' -f1 \
-                  | grep -io "\($WRT_TARGET\).*"
+                  | grep -io \
+                  "\($WRT_TARGET\).*"
               )
 
-              [ -n "$NAME" ] || continue
+
+              [ -n "$NAME" ] \
+                || continue
+
 
               NEW_FILE="$NAME-$WRT_INFO-$WRT_BRANCH-$WRT_WIFI-$WRT_DATE.$EXT"
+
 
               mv -f \
                 "$FILE" \
                 "./upload/$NEW_FILE"
+
 
             done < <(
               find ./bin/targets/ \
@@ -1004,23 +1578,32 @@ jobs:
                 -iname "*$WRT_TARGET*"
             )
 
+
+            # 其它 target 输出一起放 upload
             find ./bin/targets/ \
               -type f \
               -exec mv -f {} ./upload/ \;
 
+
           fi
+
 
           echo
           echo "===== 最终上传文件 ====="
-          ls -lh ./upload/
+
+          ls -lh \
+            ./upload/
+
           echo "========================"
+
 
       # ============================================================
       # Release
       #
-      # 注意：
-      # 前面的 5 KO 检查只要失败，这一步不会运行。
+      # 前面的 5 KO 或 OpenClash Core 检查失败，
+      # GitHub Actions 会在到这里之前直接停止。
       # ============================================================
+
       - name: Release Firmware
         uses: softprops/action-gh-release@master
         with:
