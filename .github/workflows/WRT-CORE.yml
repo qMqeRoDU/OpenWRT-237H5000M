@@ -144,6 +144,14 @@ jobs:
           cd ./wrt/
 
           # 追加自定义feeds（顺序与本地一致，不要调换）
+          # qmodem：只为 luci-app-mt5700m 提供 ubus-at-daemon 与 sms-tool_q 两个依赖，
+          #         luci-app-qmodem 主包在 Config 里是 =n，不要打开——它的
+          #         /etc/board.d/03_qmodem 会再建一个指向 eth2 的 USB 接口，
+          #         和 mt5700m 建的 MT5700M 接口同 MAC，导致两条默认路由 + 两个 DHCP
+          # mt5700m：FAN789/luci-app-mt5700m 是嵌套结构，可以直接当 feed 用；
+          #          luci-app-h5000m-fancontrol 是平级结构（Makefile 在仓库根目录），
+          #          当 feed 会报 target pattern contains no '%'，只能 clone 到
+          #          package/ 下，见 Scripts/Packages.sh
           echo "" >> feeds.conf.default
           cat >> feeds.conf.default <<-EOF
           src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages;main
@@ -152,6 +160,8 @@ jobs:
           src-git helloworld https://github.com/fw876/helloworld
           src-git openclash https://github.com/vernesong/OpenClash;master
           src-git istore https://github.com/linkease/istore;main
+          src-git qmodem https://github.com/FUjr/QModem;main
+          src-git mt5700m https://github.com/FAN789/luci-app-mt5700m;main
           EOF
 
           echo "===== feeds.conf.default ====="
@@ -186,6 +196,9 @@ jobs:
           #   改用 imm luci feed 自带的 2.4.3-20250722（针对 24.10 适配过）
           rm -rf ./feeds/luci/applications/luci-app-openclash
           rm -rf ./feeds/luci/applications/luci-app-passwall
+          rm -rf ./feeds/luci/applications/luci-app-passwall2
+          rm -rf ./feeds/luci/applications/luci-app-mosdns
+          rm -rf ./feeds/luci/applications/luci-app-ssr-plus
 
           # 代理内核与插件（imm 的 packages feed 重名很多，必须逐个让位）
           for P in xray-core xray-plugin sing-box hysteria naiveproxy \
@@ -266,11 +279,101 @@ jobs:
         run: |
           cd ./wrt/
 
+          # ---------------------------------------------------------------
+          # 机型 base 配置
+          # padavanonly Discussion #433：
+          #   kmod-mt_wifi7 依赖 PACKAGE_blkid，而 defconfig/mt7987_mt7992.config
+          #   里写的是 "# CONFIG_PACKAGE_blkid is not set"。
+          #   make defconfig 重算依赖时会连锁取消 kmod-mt_wifi7 / mt_hwifi /
+          #   mt7992 / mt799a 以及一整片 MTK_WIFI7_* 参数，而且全程不报错，
+          #   编出来的固件没有无线。
+          # 正确流程是：cp base 配置 → 补 blkid=y → 再 defconfig。
+          #
+          # 这份 base 本身就是 H5000M 专用的（DEVICE_hiveton-h5000m=y、
+          # 单机型、非 MULTI_PROFILE），先铺它再叠 Config/$WRT_CONFIG.txt，
+          # 后写的行覆盖先写的，插件选择以我们的 Config 为准；
+          # 上游新增的 MTK 参数则能拿到厂商给的默认值，不会掉进 Kconfig 默认。
+          # ---------------------------------------------------------------
+          WRT_BASE="./defconfig/mt7987_mt7992.config"
+          if [ -f "$WRT_BASE" ]; then
+            cp -f "$WRT_BASE" .config
+            echo "base config: $WRT_BASE ($(grep -c . "$WRT_BASE") 行)"
+          else
+            echo "::warning::未找到 $WRT_BASE，跳过 base 配置"
+            : > .config
+          fi
+
           cat $GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt >> .config
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
 
-          make defconfig -j$(nproc) && make clean -j$(nproc)
+          # blkid 必须是最后一句，前面任何一处写成 "is not set" 都会前功尽弃
+          sed -i '/^CONFIG_PACKAGE_blkid=/d; /^# CONFIG_PACKAGE_blkid is not set$/d' .config
+          echo 'CONFIG_PACKAGE_blkid=y' >> .config
+
+          make defconfig -j$(nproc)
+
+      - name: Check WiFi Config
+        run: |
+          cd ./wrt/
+
+          # defconfig 之后逐项核对：这些掉了就是没无线 / 插件被静默丢弃，
+          # 与其编三小时出一个废固件，不如现在就停。
+          WRT_MISS=0
+
+          wrt_need() {
+            if grep -qx "$1" ./.config; then
+              printf "  [ OK ] %s\n" "$1"
+            else
+              printf "  [FAIL] %s   实际：%s\n" "$1" "$(grep -m1 -E "^#? ?${1%%=*}[= ]" ./.config || echo '未出现')"
+              WRT_MISS=$((WRT_MISS+1))
+            fi
+          }
+
+          echo "===== 无线（Discussion #433 相关）====="
+          wrt_need "CONFIG_PACKAGE_blkid=y"
+          for K in kmod-mt_wifi7 kmod-mt_wifi_cmn kmod-mt_hwifi kmod-mtk_pci \
+                   kmod-mt7992 kmod-mt799a kmod-connac_if kmod-warp kmod-mtk_wed ; do
+            wrt_need "CONFIG_PACKAGE_$K=y"
+          done
+          wrt_need "CONFIG_MTK_WIFI7_FIRST_IF_MT7992=y"
+          wrt_need "CONFIG_MTK_WIFI7_SECOND_IF_MT7992=y"
+          wrt_need "CONFIG_MTK_WIFI7_MT_WIFI=m"
+          wrt_need "CONFIG_MTK_WIFI7_FIRST_IF_EEPROM_FLASH=y"
+          wrt_need "CONFIG_MTK_WIFI7_FIRST_IF_IPAILNA=y"
+          wrt_need "CONFIG_MTK_WIFI7_SECOND_IF_IPAILNA=y"
+          wrt_need "CONFIG_MTK_WIFI7_SKU_TYPE=\"BE5040\""
+          wrt_need "CONFIG_MTK_HWIFI_MT7992=y"
+          wrt_need "CONFIG_MTK_HWIFI_MT799A=y"
+          wrt_need "CONFIG_MTK_HWIFI_MT7992_RRO_MODE=4"
+
+          echo "===== 机型 ====="
+          wrt_need "CONFIG_TARGET_mediatek_filogic_DEVICE_hiveton-h5000m=y"
+
+          echo "===== 插件 ====="
+          for P in luci-app-passwall luci-app-ssr-plus luci-app-openclash \
+                   luci-app-mosdns luci-app-mt5700m luci-app-h5000m-fancontrol \
+                   luci-app-mtwifi-cfg luci-app-store luci-theme-argon ; do
+            wrt_need "CONFIG_PACKAGE_$P=y"
+          done
+
+          echo "========================================"
+          if [ "$WRT_MISS" -gt 0 ]; then
+            echo "::error::defconfig 后有 $WRT_MISS 项没保住"
+            if [ "$WRT_TEST" = 'true' ]; then
+              echo "TEST 模式，不中断，配置文件仍会上传供核对"
+            else
+              exit 1
+            fi
+          else
+            echo "全部保住，继续编译"
+          fi
+
+      - name: Clean Build Dir
+        run: |
+          cd ./wrt/
+
+          make clean -j$(nproc)
 
       - name: Download Packages
         if: env.WRT_TEST != 'true'
