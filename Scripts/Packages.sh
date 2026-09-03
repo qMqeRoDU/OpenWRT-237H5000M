@@ -45,9 +45,8 @@ UPDATE_PACKAGE() {
 # UPDATE_PACKAGE "包名" "项目地址" "项目分支" "pkg/name，可选，pkg为从大杂烩中单独提取包名插件；name为重命名为包名"
 
 #===============================================
-# 主题：只用 argon（jerrykuku 官方仓库）
-#   design 主题走 lede 源码树自带，不在这里 clone
-#   aurora 已停用，不再编译
+# 主题：沿用本项目原有做法，只用 argon，
+#   且取源码树 feeds/luci 自带的那一份，不额外 clone。
 # 其余插件全部走 feeds
 # 不要在这里再加 passwall / openclash / mosdns
 # 否则会和 feeds 里的同名包冲突
@@ -59,6 +58,16 @@ UPDATE_PACKAGE() {
 # 的两行 rm 加回去。
 #UPDATE_PACKAGE "argon" "jerrykuku/luci-theme-argon" "master"
 #UPDATE_PACKAGE "argon-config" "jerrykuku/luci-app-argon-config" "master"
+
+#===============================================
+# H5000M 专属插件
+#   luci-app-h5000m-fancontrol 的 Makefile 在仓库根目录（平级结构），
+#   当 src-git feed 用会报 "target pattern contains no '%'"，
+#   只能 clone 到 package/ 下。
+#   luci-app-mt5700m 是嵌套结构，已在 WRT-CORE.yml 里当 feed 接入，
+#   不要在这里重复 clone，否则 package/ 与 package/feeds/ 下同名包冲突。
+#===============================================
+UPDATE_PACKAGE "h5000m-fancontrol" "FAN789/luci-app-h5000m-fancontrol" "main"
 
 # UPDATE_PACKAGE 是在 feeds install 之后才删 feeds 目录的，
 # 会留下断链的符号链接，这里再清一次
