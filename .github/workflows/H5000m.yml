@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+
+#CI项目
+name: H5000M
+
+#CI计划
+on:
+  #自动编译：每天北京时间凌晨3点（UTC 19:00）
+  schedule:
+    - cron: 0 19 * * *
+  #手动编译
+  workflow_dispatch:
+    inputs:
+      PACKAGE:
+        description: '手动追加插件包，多个请用\n符号隔开。'
+        required: false
+        type: string
+      TEST:
+        description: '仅输出配置文件，不编译固件。'
+        default: 'false'
+        required: false
+        type: boolean
+
+#CI权限
+permissions: write-all
+
+#防止定时任务与手动触发撞车，同时跑两个 job 会抢缓存
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+#CI任务
+jobs:
+  config:
+    name: H5000M
+    #调用公用编译核心WRT-CORE.yml
+    uses: ./.github/workflows/WRT-CORE.yml
+    with:
+      #编译配置（对应 Config/H5000M.txt）
+      WRT_CONFIG: H5000M
+      #默认主题（沿用本项目自带的 argon，取 feeds/luci 自带的 2.4.3-20250722）
+      WRT_THEME: argon
+      #默认主机名
+      WRT_NAME: Hiveton_H5000M
+      #默认WIFI名称（mtwifi 闭源驱动，实际 SSID 保持源码默认 ImmortalWrt-2.4G/5G）
+      #注意：这个值会被 Settings.sh 拿去做 sed 替换，不能带斜杠等正则特殊字符
+      WRT_SSID: ImmortalWrt
+      #默认WIFI密码（由 Settings.sh 写进 mtwifi.sh 的默认配置）
+      WRT_WORD: ljx2026@.
+      #默认地址
+      WRT_IP: 192.168.99.1
+      #默认密码，仅作提示，修改无用
+      WRT_PW: admin
+      #源码链接（237 闭源 MTK Wi-Fi7 驱动线）
+      WRT_REPO: https://github.com/padavanonly/immortalwrt-mt798x-6.6.git
+      #源码分支
+      WRT_BRANCH: mt798x-mt799x-6.6-mtwifi
+      #源码名称
+      WRT_SOURCE: padavanonly/immortalwrt-mt798x-6.6
+      #插件调整
+      WRT_PACKAGE: ${{inputs.PACKAGE}}
+      #仅输出配置文件
+      WRT_TEST: ${{inputs.TEST}}
